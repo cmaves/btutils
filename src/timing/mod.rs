@@ -27,7 +27,7 @@ impl From<std::io::Error> for Error {
 const TIME_SERV: UUID = UUID(0x02f9727572264595a4f9fb54738dd751);
 const TIME_CHRC: UUID = UUID(0x33858edffe544e5c8f13ad8bafda30dc);
 
-pub use client::{Client, ClientOptions};
+pub use client::{ClientOptions, TimeClient};
 pub use server::TimeService;
 /*
 fn get_ci_att(dur: Duration) -> u16 {

@@ -5,19 +5,18 @@ use async_std::io::stdin;
 use futures::future::Either;
 
 use btutils::messaging::{ClientOptions, MsgChannelClient};
-use btutils::{drop_select, MAC, UUID};
-
-const SERV: UUID = UUID(0xd0ba200e4241433294bb2f646531afa6);
+use btutils::{drop_select, MAC};
 
 #[async_std::main]
 async fn main() {
     let mac = args().nth(1);
     let mac = MAC::from_str(&mac.unwrap()).unwrap();
-    let mut channel_options = ClientOptions::new(mac, SERV);
+    let mut channel_options = ClientOptions::new(mac);
     channel_options.name = Some("io.maves.example_client");
     let client = MsgChannelClient::new(channel_options).await.unwrap();
     let stdin = stdin();
     let mut buf = String::new();
+    println!("Client connected; Type below:");
     loop {
         let inp = stdin.read_line(&mut buf);
         let recv = client.recv_msg();

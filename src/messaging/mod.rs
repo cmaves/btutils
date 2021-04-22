@@ -22,6 +22,7 @@ pub enum Error {
     InThreadHungUp,
     OutThreadHungUp,
     ClientThreadHungUp,
+    DeviceNotFound,
     InvalidService,
     FailedToRequestName,
     Ble(rustable::Error),
@@ -125,7 +126,6 @@ impl LatDeque {
         let now = Instant::now();
         let elapsed = now.duration_since(inst);
         self.lat_sum += elapsed;
-        self.last.push_back(elapsed);
         let adj_elapsed = if inst < self.last_inst {
             now.duration_since(self.last_inst)
         } else {

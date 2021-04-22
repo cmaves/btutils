@@ -12,25 +12,23 @@ use async_rustbus::RpcConn;
 use gatt::client::{Characteristic, NotifySocket, WriteSocket};
 use gatt::AttValue;
 use rustable::gatt;
-use rustable::{Adapter, MAC, UUID};
+use rustable::{Adapter, MAC};
 
 use super::{ioe_to_blee, Error, LatDeque, DEFAULT_LAT_PERIOD, SEND_TIMEOUT};
-use super::{Stats, SERV_IN as CLIENT_OUT, SERV_OUT as CLIENT_IN};
+use super::{Stats, SERV_IN as CLIENT_OUT, SERV_OUT as CLIENT_IN, SERV_UUID};
 use crate::drop_select;
 
 pub struct ClientOptions<'a> {
     pub target_lt: Duration,
     pub dev: MAC,
-    pub service: UUID,
     pub hci: u8,
     pub lat_period: usize,
     pub name: Option<&'a str>,
 }
 impl ClientOptions<'_> {
-    pub fn new(dev: MAC, service: UUID) -> Self {
+    pub fn new(dev: MAC) -> Self {
         ClientOptions {
             dev,
-            service,
             hci: 0,
             lat_period: DEFAULT_LAT_PERIOD,
             target_lt: Duration::from_millis(8) * DEFAULT_LAT_PERIOD as u32,
@@ -182,9 +180,12 @@ impl MsgChannelClient {
     pub async fn from_conn(conn: Arc<RpcConn>, options: ClientOptions<'_>) -> Result<Self, Error> {
         assert_ne!(options.lat_period, 0);
         let hci = Adapter::from_conn(conn, options.hci).await?;
-        let dev = hci.get_device(options.dev).await?;
+        let dev = hci
+            .get_device(options.dev)
+            .await
+            .map_err(|_| Error::DeviceNotFound)?;
         let serv = dev
-            .get_service(options.service)
+            .get_service(SERV_UUID)
             .await?
             .ok_or(Error::InvalidService)?;
         let chrcs = serv.get_characteristics().await?;

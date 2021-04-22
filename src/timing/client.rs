@@ -16,7 +16,7 @@ use rustable::{gatt, Adapter, MAC};
 use super::{is_within_increment, one_time_channel, Error, OneSender, TIME_CHRC, TIME_SERV};
 use crate::drop_select;
 
-pub struct Client {
+pub struct TimeClient {
     handle: JoinHandle<Result<(), Error>>,
     start: Instant,
     sender: Sender<ClientMsg>,
@@ -247,7 +247,7 @@ impl ClientData {
 fn get_time(inst: Instant, start: Instant) -> u64 {
     inst.duration_since(start).as_micros() as u64
 }
-impl Client {
+impl TimeClient {
     pub async fn new(options: ClientOptions<'_>) -> Result<Self, Error> {
         let conn = RpcConn::system_conn(true).await?;
         Self::from_conn(Arc::new(conn), options).await
@@ -309,7 +309,7 @@ impl Client {
             }
             Result::<_, Error>::Ok(())
         });
-        Ok(Client {
+        Ok(Self {
             handle,
             start,
             sender,

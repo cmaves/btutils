@@ -5,19 +5,20 @@ use std::time::{Duration, Instant};
 use async_std::stream::interval;
 use futures::prelude::*;
 
-use btlcp::client::{ChannelOptions, MsgChannelClient};
-use btlcp::{MAC, UUID};
-use rand::prelude::*;
+use btutils::messaging::{ClientOptions, MsgChannelClient};
+use btutils::{drop_select, MAC};
 
-const SERV: UUID = UUID(0xd0ba200e4241433294bb2f646531afa6);
+use rand::prelude::*;
 
 #[async_std::main]
 async fn main() {
     let mac = args().nth(1);
     let mac = MAC::from_str(&mac.unwrap()).unwrap();
-    let mut channel_options = ChannelOptions::new(mac, SERV);
+
+    let mut channel_options = ClientOptions::new(mac);
     channel_options.name = Some("io.maves.example_client");
     let client = MsgChannelClient::new(channel_options).await.unwrap();
+
     let mut interval = interval(Duration::from_millis(8));
     let mut rng = rand::thread_rng();
     let mut _recv_cnt: usize = 0;
@@ -25,12 +26,12 @@ async fn main() {
     let start = Instant::now();
     let mut last = start;
     println!("Starting send loop");
-    let mut msg = [0; 196];
+    /*let mut msg = [0; 196];
     for (i, u) in msg.iter_mut().enumerate() {
         *u = i as u8;
-    }
+    }*/
     while let Some(_) = interval.next().await {
-        //let msg: [u8; 8] = rng.gen();
+        let msg: [u8; 8] = rng.gen();
 
         client.send_msg(&msg).await.unwrap();
         send_cnt += 1;
