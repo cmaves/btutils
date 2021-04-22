@@ -5,23 +5,28 @@ use futures::prelude::*;
 
 use rand::prelude::*;
 
-use btlcp::server::{ChannelOptions, MsgChannelServ};
-use btlcp::UUID;
+use gatt::server::Application;
+use rustable::gatt;
+use rustable::Adapter;
 
-const SERV: UUID = UUID(0xd0ba200e4241433294bb2f646531afa6);
+use btutils::messaging::{MsgChannelServ, ServerOptions};
+use btutils::UUID;
 
 #[async_std::main]
 async fn main() {
-    let mut channel_options = ChannelOptions::new(SERV, "/io/btlcp/example_server");
-    channel_options.name = Some("io.maves.example_server");
-    channel_options.filter = false;
-    let server = MsgChannelServ::new(&channel_options).await.unwrap();
+    let hci = Adapter::new(0).await.unwrap();
+    let mut app = Application::new(&hci, "/io/btlcp/example_server");
+    let server = MsgChannelServ::new(&mut app, &ServerOptions::new());
+    // named _worker so it lives till the end of the function
+    let _worker = app.register().await.unwrap();
+
     let mut interval = interval(Duration::from_millis(8));
     let mut rng = rand::thread_rng();
     let mut recv_cnt: usize = 0;
     let mut send_cnt: usize = 0;
     let start = Instant::now();
     let mut last = start;
+    println!("Beginning main loop");
     while let Some(_) = interval.next().await {
         let msg: [u8; 4] = rng.gen();
         // server.send_msg(&msg).await.unwrap();

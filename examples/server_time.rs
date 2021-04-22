@@ -6,7 +6,7 @@ use rustable::gatt::server;
 use rustable::Adapter;
 use server::Application;
 
-use btlcp::timing::TimeService;
+use btutils::timing::TimeService;
 
 #[async_std::main]
 async fn main() {

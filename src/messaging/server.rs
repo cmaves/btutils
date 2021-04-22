@@ -114,7 +114,7 @@ impl OutData {
     }
 }
 impl MsgChannelServ {
-    pub async fn new(app: &mut Application, options: &ServerOptions) -> Result<Self, Error> {
+    pub fn new(app: &mut Application, options: &ServerOptions) -> Self {
         assert_ne!(options.lat_period, 0);
 
         let mut primary = Service::new(SERV_UUID, true);
@@ -188,12 +188,12 @@ impl MsgChannelServ {
         primary.add_char(serv_in);
         app.add_service(primary);
 
-        Ok(Self {
+        Self {
             stats,
             inbound,
             outbound,
             not_sender,
-        })
+        }
     }
     pub fn recv_msg(&self) -> impl Future<Output = Result<AttValue, Error>> + Unpin + '_ {
         self.inbound
