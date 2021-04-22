@@ -9,12 +9,12 @@ use futures::future::poll_fn;
 use futures::prelude::*;
 use futures::task::Poll;
 
-use gatt::server::{Application, ShouldNotify, Characteristic, Service};
+use gatt::server::{Application, Characteristic, Service, ShouldNotify};
 use gatt::{AttValue, CharFlags, ValOrFn};
 use rustable::gatt;
 
 use super::{Error, LatDeque, Stats, DEFAULT_LAT_PERIOD, SEND_TIMEOUT};
-use super::{SERV_UUID, SERV_IN, SERV_OUT};
+use super::{SERV_IN, SERV_OUT, SERV_UUID};
 
 #[derive(Clone)]
 pub struct ServerOptions {
@@ -22,9 +22,9 @@ pub struct ServerOptions {
     pub lat_period: usize,
 }
 impl Default for ServerOptions {
-	fn default() -> Self {
-		Self::new()
-	}
+    fn default() -> Self {
+        Self::new()
+    }
 }
 impl ServerOptions {
     pub fn new() -> Self {
@@ -38,7 +38,7 @@ impl ServerOptions {
 pub struct MsgChannelServ {
     inbound: Receiver<AttValue>,
     outbound: Sender<AttValue>,
-	not_sender: Sender<()>,
+    not_sender: Sender<()>,
     stats: Arc<Stats>,
 }
 
@@ -49,12 +49,12 @@ struct OutData {
     recv: Receiver<AttValue>,
     stats: Arc<Stats>,
     lat: LatDeque,
-	timeout: Instant,
+    timeout: Instant,
 }
 
 impl OutData {
     fn try_send(&mut self) -> AttValue {
-		let now = Instant::now();
+        let now = Instant::now();
         if self.can_send() {
             match self.recv.try_recv() {
                 Ok(mut val) => {
@@ -67,21 +67,21 @@ impl OutData {
                     for (src, dest) in idx.get().to_le_bytes().iter().zip(&mut val[..4]) {
                         *dest = *src;
                     }
-					let to_dur = self.lat.avg_lat().max(Duration::from_micros(1450)) * 16;
-					self.timeout = now + to_dur;
+                    let to_dur = self.lat.avg_lat().max(Duration::from_micros(1450)) * 16;
+                    self.timeout = now + to_dur;
                     val
                 }
                 Err(TryRecvError::Empty) => {
-					self.timeout = now + Duration::from_secs(3600);
-					AttValue::new(4)
-				}
+                    self.timeout = now + Duration::from_secs(3600);
+                    AttValue::new(4)
+                }
                 Err(TryRecvError::Closed) => {
-					self.timeout = now + Duration::from_secs(3600*365*1000);
-					AttValue::new(4)
-				}
+                    self.timeout = now + Duration::from_secs(3600 * 365 * 1000);
+                    AttValue::new(4)
+                }
             }
         } else {
-			self.timeout = now + Duration::from_secs(3600);
+            self.timeout = now + Duration::from_secs(3600);
             AttValue::new(4)
         }
     }
@@ -128,18 +128,18 @@ impl MsgChannelServ {
         let mut serv_out = Characteristic::new(SERV_OUT, flags);
         let (outbound, recv) = bounded(1);
         let stats: Arc<Stats> = Arc::default();
-		let (not_sender, not_recv) = unbounded();
+        let (not_sender, not_recv) = unbounded();
         let data = Arc::new(Mutex::new(OutData {
             recv,
             stats: stats.clone(),
             target_lt: options.target_lt,
             lat: LatDeque::new(options.lat_period),
             sent: VecDeque::new(),
-			timeout: Instant::now() + Duration::from_secs(3600),
+            timeout: Instant::now() + Duration::from_secs(3600),
             idx: 0,
         }));
         let data_not = data.clone();
-		let data_clone = data.clone();
+        let data_clone = data.clone();
         serv_out.set_value(ValOrFn::Function(Box::new(move || {
             let mut data_lock = data_not.try_lock().unwrap();
             data_lock.try_send()
@@ -149,29 +149,30 @@ impl MsgChannelServ {
             data_lock.handle_write(val)
         });
 
-		serv_out.set_notify_cb(move || {
-			let data = data_clone.clone();
-			let recv = not_recv.clone();
-			async move {
-				let data_lock = data.try_lock().unwrap();
-				let mut to = data_lock.timeout;
-				drop(data_lock);
-				loop {
-					let to_dur = to.saturating_duration_since(Instant::now());
-					match async_std::future::timeout(to_dur, recv.recv()).await {
-						Ok(_) => break,
-						Err(_) => {
-							let data_lock = data.try_lock().unwrap();
-							if to == data_lock.timeout {
-								break;
-							}
-							to = data_lock.timeout;
-						}
-					}
-				}
-				ShouldNotify::Yes
-			}.boxed()
-		});
+        serv_out.set_notify_cb(move || {
+            let data = data_clone.clone();
+            let recv = not_recv.clone();
+            async move {
+                let data_lock = data.try_lock().unwrap();
+                let mut to = data_lock.timeout;
+                drop(data_lock);
+                loop {
+                    let to_dur = to.saturating_duration_since(Instant::now());
+                    match async_std::future::timeout(to_dur, recv.recv()).await {
+                        Ok(_) => break,
+                        Err(_) => {
+                            let data_lock = data.try_lock().unwrap();
+                            if to == data_lock.timeout {
+                                break;
+                            }
+                            to = data_lock.timeout;
+                        }
+                    }
+                }
+                ShouldNotify::Yes
+            }
+            .boxed()
+        });
         let mut serv_in = Characteristic::new(SERV_IN, flags);
         let (sender, inbound) = unbounded();
         serv_in.set_value(ValOrFn::Value(AttValue::new(4)));
@@ -191,7 +192,7 @@ impl MsgChannelServ {
             stats,
             inbound,
             outbound,
-			not_sender
+            not_sender,
         })
     }
     pub fn recv_msg(&self) -> impl Future<Output = Result<AttValue, Error>> + Unpin + '_ {
@@ -223,10 +224,12 @@ impl MsgChannelServ {
             let _ = timer.poll_next_unpin(ctx); // prime the context to wake after timeout
             Poll::Pending
         })
-        .and_then(move |_| futures::future::ready(match self.not_sender.try_send(()) {
-			Ok(()) => Ok(()),
-			Err(_) => Err(Error::OutThreadHungUp)	
-		}))
+        .and_then(move |_| {
+            futures::future::ready(match self.not_sender.try_send(()) {
+                Ok(()) => Ok(()),
+                Err(_) => Err(Error::OutThreadHungUp),
+            })
+        })
     }
     pub fn get_avg_lat(&self) -> Duration {
         self.stats.get_avg_lat()

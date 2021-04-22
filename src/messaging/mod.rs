@@ -5,7 +5,6 @@ use std::time::{Duration, Instant};
 
 pub use rustable::{MAC, UUID};
 
-
 const SERV_UUID: UUID = UUID(0x0143d59000004dfbb83fb1135254e6b4);
 const SERV_OUT: UUID = UUID(0x0143d59000014dfbb83fb1135254e6b4);
 const SERV_IN: UUID = UUID(0x0143d59000024dfbb83fb1135254e6b4);
@@ -15,7 +14,7 @@ const DEFAULT_LAT_PERIOD: usize = 32;
 mod client;
 mod server;
 
-pub use client::{MsgChannelClient, ClientOptions};
+pub use client::{ClientOptions, MsgChannelClient};
 pub use server::{MsgChannelServ, ServerOptions};
 
 #[derive(Debug)]
@@ -94,6 +93,8 @@ struct LatDeque {
     last_inst: Instant,
     lat_sum: Duration,
     last: VecDeque<Duration>,
+    lat_sum_adjusted: Duration,
+    last_adjusted: VecDeque<Duration>,
     lat_period: usize,
 }
 impl LatDeque {
@@ -102,9 +103,17 @@ impl LatDeque {
         LatDeque {
             last_inst: Instant::now(),
             last: VecDeque::with_capacity(lat_period),
+            last_adjusted: VecDeque::with_capacity(lat_period),
             lat_period,
             lat_sum: Default::default(),
+            lat_sum_adjusted: Default::default(),
         }
+    }
+    fn avg_lat_adjusted(&self) -> Duration {
+        self.lat_sum_adjusted
+            .checked_div(self.last_adjusted.len() as u32)
+            .unwrap_or_default()
+            / 2
     }
     fn avg_lat(&self) -> Duration {
         self.lat_sum
@@ -114,12 +123,22 @@ impl LatDeque {
     }
     fn push_new(&mut self, inst: Instant) {
         let now = Instant::now();
-        let elapsed = now.duration_since(inst.max(self.last_inst));
+        let elapsed = now.duration_since(inst);
         self.lat_sum += elapsed;
+        self.last.push_back(elapsed);
+        let adj_elapsed = if inst < self.last_inst {
+            now.duration_since(self.last_inst)
+        } else {
+            elapsed
+        };
+        self.lat_sum_adjusted += adj_elapsed;
         while self.last.len() + 1 > self.lat_period {
+            debug_assert_eq!(self.last.len(), self.last_adjusted.len());
             self.lat_sum -= self.last.pop_front().unwrap();
+            self.lat_sum_adjusted -= self.last_adjusted.pop_front().unwrap();
         }
         self.last.push_back(elapsed);
+        self.last_adjusted.push_back(adj_elapsed);
         self.last_inst = now;
     }
 }

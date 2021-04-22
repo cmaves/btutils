@@ -1,18 +1,19 @@
 use async_std::io::stdin;
 use futures::future::Either;
 
+use btutils::drop_select;
+use btutils::messaging::{MsgChannelServ, ServerOptions};
+use gatt::server::Application;
 use rustable::gatt;
 use rustable::Adapter;
-use gatt::server::Application;
-use btutils::messaging::{ServerOptions, MsgChannelServ};
-use btutils::drop_select;
-
 
 #[async_std::main]
 async fn main() {
-	let hci = Adapter::new(0).await.unwrap();
-	let mut app = Application::new(&hci, "/io/btlcp/example_server");
-    let server = MsgChannelServ::new(&mut app, &ServerOptions::new()).await.unwrap();
+    let hci = Adapter::new(0).await.unwrap();
+    let mut app = Application::new(&hci, "/io/btlcp/example_server");
+    let server = MsgChannelServ::new(&mut app, &ServerOptions::new())
+        .await
+        .unwrap();
     let mut buf = String::new();
     let stdin = stdin();
     loop {

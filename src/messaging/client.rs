@@ -14,9 +14,9 @@ use gatt::AttValue;
 use rustable::gatt;
 use rustable::{Adapter, MAC, UUID};
 
-use crate::drop_select;
 use super::{ioe_to_blee, Error, LatDeque, DEFAULT_LAT_PERIOD, SEND_TIMEOUT};
 use super::{Stats, SERV_IN as CLIENT_OUT, SERV_OUT as CLIENT_IN};
+use crate::drop_select;
 
 pub struct ClientOptions<'a> {
     pub target_lt: Duration,
@@ -101,10 +101,7 @@ impl ClientData {
         ret
     }
     fn can_send(&self) -> bool {
-        self.avg_lat() * self.sent.len() as u32 <= self.target_lt
-    }
-    fn avg_lat(&self) -> Duration {
-        self.lat.avg_lat()
+        self.lat.avg_lat_adjusted() * self.sent.len() as u32 <= self.target_lt
     }
     async fn handle_send_res(&mut self, res: std::io::Result<AttValue>) -> Result<(), Error> {
         let val = match res {
@@ -126,7 +123,7 @@ impl ClientData {
                     let sent = loc + 1;
                     let (_, inst) = self.sent.drain(0..sent).last().unwrap();
                     self.lat.push_new(inst);
-                    self.stats.update_lat(self.avg_lat());
+                    self.stats.update_lat(self.lat.avg_lat());
                     self.stats.update_recvd_sent(1, sent as u32);
                 }
             }

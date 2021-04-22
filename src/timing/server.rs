@@ -3,14 +3,12 @@ use std::time::{Duration, Instant};
 
 use async_std::sync::{Mutex, MutexGuard};
 
-
 use rustable::gatt;
 
 use gatt::server::{Application, Characteristic, Service};
 use gatt::{AttValue, CharFlags, ValOrFn};
 
 use super::{Error, TIME_CHRC, TIME_SERV};
-
 
 enum State {
     Waiting,

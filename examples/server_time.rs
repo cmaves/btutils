@@ -2,8 +2,8 @@ use std::time::{Duration, Instant};
 
 use async_std::task::sleep;
 
-use rustable::Adapter;
 use rustable::gatt::server;
+use rustable::Adapter;
 use server::Application;
 
 use btlcp::timing::TimeService;

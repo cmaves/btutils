@@ -69,7 +69,7 @@ struct ClientData {
 
 impl ClientData {
     async fn write_data(&mut self, att_val: &AttValue) -> Result<(), Error> {
-		eprintln!("\tClientData::write_data: {:?}", att_val);
+        eprintln!("\tClientData::write_data: {:?}", att_val);
         match self.write.write(att_val).await {
             Ok(_) => Ok(()),
             Err(e) if e.kind() == ErrorKind::NotConnected || e.kind() == ErrorKind::BrokenPipe => {
@@ -83,21 +83,21 @@ impl ClientData {
         }
     }
     async fn start_client_sync(&mut self) -> Result<Duration, Error> {
-		eprintln!("ClientData::start_client_sync()");
+        eprintln!("ClientData::start_client_sync()");
         let now = Instant::now();
         self.write_data(&AttValue::from(&[0x00u8][..])).await?;
         self.state = State::ClientInit(now);
         Ok(Duration::from_secs(9))
     }
     async fn handle_to(&mut self) -> Result<Duration, Error> {
-		eprintln!("ClientData::handle_to()");
+        eprintln!("ClientData::handle_to()");
         match &self.state {
             State::Waiting => Ok(Duration::from_secs(3600)),
             _ => self.start_client_sync().await,
         }
     }
     async fn handle_not(&mut self, res: std::io::Result<AttValue>) -> Result<Duration, Error> {
-		eprintln!("ClientData::handle_not(): res: {:?}", res);
+        eprintln!("ClientData::handle_not(): res: {:?}", res);
         let val = match res {
             Ok(v) => v,
             Err(_) => {
@@ -105,28 +105,28 @@ impl ClientData {
                 return self.handle_to().await;
             }
         };
-		if val.is_empty() {
-			return Ok(self.get_to());
-		}
+        if val.is_empty() {
+            return Ok(self.get_to());
+        }
         match (&self.state, val[0]) {
             (State::Waiting, 0xFF) => Ok(self.get_to()),
-			(State::Waiting, _) => unimplemented!(),
-            (State::ClientInit(start), 0x80)=> {
+            (State::Waiting, _) => unimplemented!(),
+            (State::ClientInit(start), 0x80) => {
                 let start = *start;
                 self.begin_ci_loop(start.elapsed()).await
             }
-			(State::ClientInit(_), _) => Ok(self.get_to()),
-			
+            (State::ClientInit(_), _) => Ok(self.get_to()),
+
             (State::GettingCI { .. }, 0x81) if val.len() >= 3 => {
                 let mut idx = [0; 2];
                 idx.copy_from_slice(&val[1..3]);
                 let idx = u16::from_le_bytes(idx);
                 self.do_ci_loop(idx).await
             }
-			(State::Agreeing(att_ci, _), 0x82) => {
+            (State::Agreeing(att_ci, _), 0x82) => {
                 let att_ci = *att_ci;
                 self.client_set_time(att_ci).await
-			}
+            }
             (State::ClientSetTime(_), 0x83) if val.len() >= 9 => {
                 let now = Instant::now();
                 let mut st_ref = [0; 8];
@@ -145,7 +145,7 @@ impl ClientData {
                     Ok(Duration::from_secs(3600))
                 }
             }
-			_ => self.start_client_sync().await
+            _ => self.start_client_sync().await,
         }
     }
     async fn begin_ci_loop(&mut self, est_ci: Duration) -> Result<Duration, Error> {
@@ -183,8 +183,11 @@ impl ClientData {
         // Check if the estimated CI has decreased
         let start = insts[0];
         let new_est_ci = now.duration_since(start) / insts.len() as u32 / 2;
-		eprintln!("do_ci_loop(): iteration time {} us, new_est_ci: {}", 
-			now.duration_since(*last).as_micros(), new_est_ci.as_micros());
+        eprintln!(
+            "do_ci_loop(): iteration time {} us, new_est_ci: {}",
+            now.duration_since(*last).as_micros(),
+            new_est_ci.as_micros()
+        );
         if is_within_increment(*est_ci, new_est_ci) {
             *last_change += 1;
         } else {
@@ -194,7 +197,7 @@ impl ClientData {
         let mut att_val = AttValue::new(0);
         let est_ci = *est_ci;
         if *last_change >= 3 {
-			eprintln!("do_ci_loop(): CI stabilized");
+            eprintln!("do_ci_loop(): CI stabilized");
             // Estimated CI has stabilized write, check for CI agreement
             att_val.push(0x02);
             //let att_ci = get_ci_att(est_ci);
@@ -205,7 +208,7 @@ impl ClientData {
         } else {
             let idx = (insts.len() as u16).to_le_bytes();
             insts.push(now);
-			att_val.push(0x01);
+            att_val.push(0x01);
             att_val.extend_from_slice(&idx);
             self.write_data(&att_val).await?;
         }

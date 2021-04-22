@@ -5,10 +5,8 @@ use futures::pin_mut;
 use futures::prelude::*;
 
 pub use rustable::{MAC, UUID};
-pub mod timing;
 pub mod messaging;
-
-
+pub mod timing;
 
 #[derive(Debug)]
 pub enum Error {

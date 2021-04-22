@@ -7,7 +7,6 @@ use async_std::task::sleep;
 use btlcp::timing::{Client, ClientOptions};
 use btlcp::MAC;
 
-
 #[async_std::main]
 async fn main() {
     let mac = args().nth(1);
