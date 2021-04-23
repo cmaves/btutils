@@ -1,8 +1,6 @@
 use std::fmt::Display;
 
-use futures::future::{select, Either};
-use futures::pin_mut;
-use futures::prelude::*;
+pub mod future;
 
 pub use rustable::{MAC, UUID};
 pub mod messaging;
@@ -36,32 +34,3 @@ impl Display for Error {
 }
 
 impl std::error::Error for Error {}
-
-fn factor_fut<A, B>(either: Either<(A::Output, B), (B::Output, A)>) -> Either<A::Output, B::Output>
-where
-    A: Future,
-    B: Future,
-{
-    match either {
-        Either::Left((out, _)) => Either::Left(out),
-        Either::Right((out, _)) => Either::Right(out),
-    }
-}
-
-pub async fn drop_select<A, B>(left: A, right: B) -> Either<A::Output, B::Output>
-where
-    A: Future,
-    B: Future,
-{
-    pin_mut!(left);
-    pin_mut!(right);
-    factor_fut(select(left, right).await)
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
-}

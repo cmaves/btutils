@@ -14,7 +14,7 @@ use gatt::AttValue;
 use rustable::{gatt, Adapter, MAC};
 
 use super::{is_within_increment, one_time_channel, Error, OneSender, TIME_CHRC, TIME_SERV};
-use crate::drop_select;
+use crate::future::drop_select;
 
 pub struct TimeClient {
     handle: JoinHandle<Result<(), Error>>,

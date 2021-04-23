@@ -11,7 +11,7 @@ use gatt::server::{Application, Characteristic, Service, ShouldNotify};
 use gatt::{AttValue, CharFlags, ValOrFn};
 use rustable::gatt;
 
-use super::{zero_channel, ZeroReceiver, ZeroSender};
+use super::{rendezvous, RendReceiver, RendSender};
 use super::{Error, LatDeque, Stats, DEFAULT_LAT_PERIOD};
 use super::{SERV_IN, SERV_OUT, SERV_UUID};
 
@@ -36,7 +36,7 @@ impl ServerOptions {
 
 pub struct MsgChannelServ {
     inbound: Receiver<AttValue>,
-    outbound: ZeroSender<AttValue>,
+    outbound: RendSender<AttValue>,
     not_sender: Sender<()>,
     stats: Arc<Stats>,
 }
@@ -45,7 +45,7 @@ struct OutData {
     sent: VecDeque<(NonZeroU32, Instant)>,
     idx: u32,
     target_lt: Duration,
-    recv: ZeroReceiver<AttValue>,
+    recv: RendReceiver<AttValue>,
     stats: Arc<Stats>,
     lat: LatDeque,
     timeout: Instant,
@@ -123,7 +123,7 @@ impl MsgChannelServ {
         // flags.indicate = true;
 
         let mut serv_out = Characteristic::new(SERV_OUT, flags);
-        let (outbound, recv) = zero_channel();
+        let (outbound, recv) = rendezvous();
         let stats: Arc<Stats> = Arc::default();
         let (not_sender, not_recv) = bounded(1);
         let data = Arc::new(Mutex::new(OutData {

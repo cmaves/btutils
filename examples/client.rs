@@ -4,8 +4,9 @@ use std::str::FromStr;
 use async_std::io::stdin;
 use futures::future::Either;
 
+use btutils::future::drop_select;
 use btutils::messaging::{ClientOptions, MsgChannelClient};
-use btutils::{drop_select, MAC};
+use btutils::MAC;
 
 #[async_std::main]
 async fn main() {

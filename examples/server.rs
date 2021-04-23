@@ -1,7 +1,7 @@
 use async_std::io::stdin;
 use futures::future::Either;
 
-use btutils::drop_select;
+use btutils::future::drop_select;
 use btutils::messaging::{MsgChannelServ, ServerOptions};
 
 use gatt::server::Application;

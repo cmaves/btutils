@@ -15,9 +15,9 @@ use rustable::gatt;
 use rustable::{Adapter, MAC};
 
 use super::{ioe_to_blee, Error, LatDeque, DEFAULT_LAT_PERIOD};
-use super::{zero_channel, ZeroReceiver, ZeroSender};
+use super::{rendezvous, RendReceiver, RendSender};
 use super::{Stats, SERV_IN as CLIENT_OUT, SERV_OUT as CLIENT_IN, SERV_UUID};
-use crate::drop_select;
+use crate::future::drop_select;
 
 pub struct ClientOptions<'a> {
     pub target_lt: Duration,
@@ -39,7 +39,7 @@ impl ClientOptions<'_> {
 }
 
 pub struct MsgChannelClient {
-    outbound: ZeroSender<AttValue>,
+    outbound: RendSender<AttValue>,
     inbound: Receiver<AttValue>,
     handle: JoinHandle<Result<(), Error>>,
     stats: Arc<Stats>,
@@ -52,7 +52,7 @@ struct ClientData {
     idx: u32,
     target_lt: Duration,
     sender: Sender<AttValue>,
-    recv: ZeroReceiver<AttValue>,
+    recv: RendReceiver<AttValue>,
     stats: Arc<Stats>,
     out_chrc: Characteristic,
     out_write: WriteSocket,
@@ -219,7 +219,7 @@ impl MsgChannelClient {
             .await?;
             try_join4(f.0, f.1, f.2, f.3).await?
         };
-        let (outbound, recv) = zero_channel();
+        let (outbound, recv) = rendezvous();
         let (sender, inbound) = unbounded();
         let stats: Arc<Stats> = Arc::default();
         let mut data = ClientData {
