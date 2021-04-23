@@ -94,7 +94,7 @@ impl ServerData {
                             }
                             Some(_) => {
                                 let new_est = now.duration_since(start) / insts.len() as u32 / 2;
-                                *est_ci = new_est.min(*est_ci);
+                                *est_ci = new_est;
                                 insts.push(now);
                             }
                         }

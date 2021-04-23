@@ -3,9 +3,10 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use async_std::channel::{bounded, Receiver, Sender, TryRecvError};
+use async_std::channel::{unbounded, bounded, Receiver, Sender, TryRecvError};
 use async_std::sync::Mutex;
 use futures::prelude::*;
+use futures::future::try_join;
 
 use gatt::server::{Application, Characteristic, Service, ShouldNotify};
 use gatt::{AttValue, CharFlags, ValOrFn};
@@ -171,7 +172,7 @@ impl MsgChannelServ {
             .boxed()
         });
         let mut serv_in = Characteristic::new(SERV_IN, flags);
-        let (sender, inbound) = bounded(1);
+        let (sender, inbound) = unbounded();
         serv_in.set_value(ValOrFn::Value(AttValue::new(4)));
         serv_in.set_write_cb(move |mut val| {
             if val.len() < 4 {
@@ -209,14 +210,10 @@ impl MsgChannelServ {
         assert!(buf.len() <= 508);
         let mut val = AttValue::new(4);
         val.extend_from_slice(buf);
-        self.outbound
-            .send(val)
-            .await
-            .map_err(|_| Error::OutThreadHungUp)?;
-        self.not_sender
-            .send(())
-            .await
-            .map_err(|_| Error::OutThreadHungUp)
+        let out_fut = self.outbound.send(val).map_err(|_| Error::OutThreadHungUp);
+        let not_fut = self.not_sender.send(()).map_err(|_| Error::OutThreadHungUp);
+        try_join(out_fut, not_fut).await?;
+        Ok(())
     }
     /*pub fn send_msg(&self, buf: &[u8]) -> impl Future<Output = Result<(), Error>> + Unpin + '_ {
         poll_fn(move |ctx| {
