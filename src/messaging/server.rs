@@ -3,17 +3,16 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use async_std::channel::{bounded, unbounded, Receiver, Sender, TryRecvError};
+use async_std::channel::{bounded, Receiver, Sender, TryRecvError};
 use async_std::sync::Mutex;
-use futures::future::poll_fn;
 use futures::prelude::*;
-use futures::task::Poll;
 
 use gatt::server::{Application, Characteristic, Service, ShouldNotify};
 use gatt::{AttValue, CharFlags, ValOrFn};
 use rustable::gatt;
 
-use super::{Error, LatDeque, Stats, DEFAULT_LAT_PERIOD, SEND_TIMEOUT};
+use super::{zero_channel, ZeroReceiver, ZeroSender};
+use super::{Error, LatDeque, Stats, DEFAULT_LAT_PERIOD};
 use super::{SERV_IN, SERV_OUT, SERV_UUID};
 
 #[derive(Clone)]
@@ -37,7 +36,7 @@ impl ServerOptions {
 
 pub struct MsgChannelServ {
     inbound: Receiver<AttValue>,
-    outbound: Sender<AttValue>,
+    outbound: ZeroSender<AttValue>,
     not_sender: Sender<()>,
     stats: Arc<Stats>,
 }
@@ -46,7 +45,7 @@ struct OutData {
     sent: VecDeque<(NonZeroU32, Instant)>,
     idx: u32,
     target_lt: Duration,
-    recv: Receiver<AttValue>,
+    recv: ZeroReceiver<AttValue>,
     stats: Arc<Stats>,
     lat: LatDeque,
     timeout: Instant,
@@ -67,7 +66,7 @@ impl OutData {
                     for (src, dest) in idx.get().to_le_bytes().iter().zip(&mut val[..4]) {
                         *dest = *src;
                     }
-                    let to_dur = self.lat.avg_lat().max(Duration::from_micros(1450)) * 16;
+                    let to_dur = self.lat.avg_lat().max(Duration::from_micros(7250)) * 16;
                     self.timeout = now + to_dur;
                     val
                 }
@@ -81,7 +80,8 @@ impl OutData {
                 }
             }
         } else {
-            self.timeout = now + Duration::from_secs(3600);
+            let to_dur = self.lat.avg_lat().max(Duration::from_micros(7250)) * 16;
+            self.timeout = now + to_dur;
             AttValue::new(4)
         }
     }
@@ -98,7 +98,7 @@ impl OutData {
                     let sent = loc + 1;
                     let (_, inst) = self.sent.drain(0..sent).last().unwrap();
                     self.lat.push_new(inst);
-                    self.stats.update_lat(self.avg_lat());
+                    self.stats.update_lat(self.lat.avg_lat());
                     self.stats.update_recvd_sent(1, sent as u32);
                 }
             }
@@ -107,10 +107,7 @@ impl OutData {
         (None, self.can_send())
     }
     fn can_send(&self) -> bool {
-        !self.recv.is_empty() && self.avg_lat() * self.sent.len() as u32 <= self.target_lt
-    }
-    fn avg_lat(&self) -> Duration {
-        self.lat.avg_lat()
+        self.lat.avg_lat_adjusted() * self.sent.len() as u32 <= self.target_lt
     }
 }
 impl MsgChannelServ {
@@ -126,9 +123,9 @@ impl MsgChannelServ {
         // flags.indicate = true;
 
         let mut serv_out = Characteristic::new(SERV_OUT, flags);
-        let (outbound, recv) = bounded(1);
+        let (outbound, recv) = zero_channel();
         let stats: Arc<Stats> = Arc::default();
-        let (not_sender, not_recv) = unbounded();
+        let (not_sender, not_recv) = bounded(1);
         let data = Arc::new(Mutex::new(OutData {
             recv,
             stats: stats.clone(),
@@ -174,7 +171,7 @@ impl MsgChannelServ {
             .boxed()
         });
         let mut serv_in = Characteristic::new(SERV_IN, flags);
-        let (sender, inbound) = unbounded();
+        let (sender, inbound) = bounded(1);
         serv_in.set_value(ValOrFn::Value(AttValue::new(4)));
         serv_in.set_write_cb(move |mut val| {
             if val.len() < 4 {
@@ -208,12 +205,20 @@ impl MsgChannelServ {
             Err(TryRecvError::Closed) => Err(Error::ClientThreadHungUp),
         }
     }
-    pub fn send_msg(&self, buf: &[u8]) -> impl Future<Output = Result<(), Error>> + Unpin + '_ {
+    pub async fn send_msg(&self, buf: &[u8]) -> Result<(), Error> {
         assert!(buf.len() <= 508);
         let mut val = AttValue::new(4);
         val.extend_from_slice(buf);
-        let mut send_fut = self.outbound.send(val);
-        let mut timer = async_std::stream::interval(SEND_TIMEOUT);
+        self.outbound
+            .send(val)
+            .await
+            .map_err(|_| Error::OutThreadHungUp)?;
+        self.not_sender
+            .send(())
+            .await
+            .map_err(|_| Error::OutThreadHungUp)
+    }
+    /*pub fn send_msg(&self, buf: &[u8]) -> impl Future<Output = Result<(), Error>> + Unpin + '_ {
         poll_fn(move |ctx| {
             if let Poll::Ready(res) = send_fut.poll_unpin(ctx) {
                 return Poll::Ready(match res {
@@ -230,7 +235,7 @@ impl MsgChannelServ {
                 Err(_) => Err(Error::OutThreadHungUp),
             })
         })
-    }
+    }*/
     pub fn get_avg_lat(&self) -> Duration {
         self.stats.get_avg_lat()
     }

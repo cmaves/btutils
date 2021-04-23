@@ -3,18 +3,19 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use async_std::channel::{bounded, unbounded, Receiver, Sender};
+use async_std::channel::{unbounded, Receiver, Sender};
 use async_std::task::JoinHandle;
 use futures::future::{try_join, try_join4, Either};
 use futures::prelude::*;
 
 use async_rustbus::RpcConn;
-use gatt::client::{Characteristic, NotifySocket, WriteSocket};
+use gatt::client::{Characteristic, NotifySocket, Service, WriteSocket};
 use gatt::AttValue;
 use rustable::gatt;
 use rustable::{Adapter, MAC};
 
-use super::{ioe_to_blee, Error, LatDeque, DEFAULT_LAT_PERIOD, SEND_TIMEOUT};
+use super::{ioe_to_blee, Error, LatDeque, DEFAULT_LAT_PERIOD};
+use super::{zero_channel, ZeroReceiver, ZeroSender};
 use super::{Stats, SERV_IN as CLIENT_OUT, SERV_OUT as CLIENT_IN, SERV_UUID};
 use crate::drop_select;
 
@@ -38,7 +39,7 @@ impl ClientOptions<'_> {
 }
 
 pub struct MsgChannelClient {
-    outbound: Sender<AttValue>,
+    outbound: ZeroSender<AttValue>,
     inbound: Receiver<AttValue>,
     handle: JoinHandle<Result<(), Error>>,
     stats: Arc<Stats>,
@@ -46,11 +47,12 @@ pub struct MsgChannelClient {
 
 struct ClientData {
     lat: LatDeque,
+    timeout: Instant,
     sent: VecDeque<(NonZeroU32, Instant)>,
     idx: u32,
     target_lt: Duration,
     sender: Sender<AttValue>,
-    recv: Receiver<AttValue>,
+    recv: ZeroReceiver<AttValue>,
     stats: Arc<Stats>,
     out_chrc: Characteristic,
     out_write: WriteSocket,
@@ -61,19 +63,17 @@ struct ClientData {
 }
 
 impl ClientData {
-    async fn try_send(&mut self, msg: &mut Option<AttValue>) -> Result<(), Error> {
-        if !self.can_send() {
-            return Ok(());
-        }
+    async fn send(&mut self, mut val: AttValue) -> Result<(), Error> {
+        debug_assert!(&val[..] == &AttValue::new(4)[..] || self.can_send());
         let now = Instant::now();
         let idx = self.allocate_idx();
-        let mut val = msg.take().unwrap();
         for (src, dest) in idx.get().to_le_bytes().iter().zip(&mut val[..4]) {
             *dest = *src;
         }
         match self.out_write.write(&val).await {
             Ok(_) => {
                 self.sent.push_back((idx, now));
+                self.set_timeout(now);
                 Ok(())
             }
             Err(e)
@@ -84,11 +84,16 @@ impl ClientData {
                 self.sent.push_back((idx, now));
                 let sock_fut = self.out_chrc.acquire_write().await?;
                 let res = try_join(write_fut, sock_fut).await?;
+                self.set_timeout(now);
                 self.out_write = res.1;
                 Ok(())
             }
             Err(e) => Err(rustable::Error::from(e).into()),
         }
+    }
+    fn set_timeout(&mut self, now: Instant) {
+        let to_dur = self.lat.avg_lat().max(Duration::from_micros(7250)) * 16;
+        self.timeout = now + to_dur;
     }
     fn allocate_idx(&mut self) -> NonZeroU32 {
         let ret = NonZeroU32::new(self.idx).unwrap_or_else(|| unsafe {
@@ -157,8 +162,12 @@ impl ClientData {
             Err(e) => Err(rustable::Error::from(e).into()),
         }
     }
-    fn drop_oldest(&mut self) {
+    /*fn drop_oldest(&mut self) {
         self.sent.pop_front();
+        self.lat.pop_oldest();
+    }*/
+    fn get_to(&self) -> Duration {
+        self.timeout.saturating_duration_since(Instant::now())
     }
     /*
     fn await_notify(&self) -> impl Future<Output=Either<std::io::Result<AttValue>, std::io::Result<AttValue>>> + Unpin + '_ {
@@ -180,14 +189,11 @@ impl MsgChannelClient {
     pub async fn from_conn(conn: Arc<RpcConn>, options: ClientOptions<'_>) -> Result<Self, Error> {
         assert_ne!(options.lat_period, 0);
         let hci = Adapter::from_conn(conn, options.hci).await?;
-        let dev = hci
-            .get_device(options.dev)
-            .await
-            .map_err(|_| Error::DeviceNotFound)?;
-        let serv = dev
-            .get_service(SERV_UUID)
-            .await?
-            .ok_or(Error::InvalidService)?;
+        let dev = hci.get_device(options.dev).await?;
+        let serv = dev.get_service(SERV_UUID).await?;
+        Self::from_service(serv, options).await
+    }
+    pub async fn from_service(serv: Service, options: ClientOptions<'_>) -> Result<Self, Error> {
         let chrcs = serv.get_characteristics().await?;
         let mut chrcs = chrcs
             .into_iter()
@@ -213,7 +219,7 @@ impl MsgChannelClient {
             .await?;
             try_join4(f.0, f.1, f.2, f.3).await?
         };
-        let (outbound, recv) = bounded(1);
+        let (outbound, recv) = zero_channel();
         let (sender, inbound) = unbounded();
         let stats: Arc<Stats> = Arc::default();
         let mut data = ClientData {
@@ -223,42 +229,39 @@ impl MsgChannelClient {
             out_chrc,
             out_notify,
             out_write,
-            recv,
             sender,
+            recv,
             lat: LatDeque::new(options.lat_period),
             target_lt: options.target_lt,
             idx: 0,
             stats: stats.clone(),
             sent: VecDeque::new(),
+            timeout: Instant::now(),
         };
         let handle = async_std::task::spawn(async move {
-            let mut to_send = None;
             loop {
-                if matches!(to_send, Some(_)) {
-                    data.try_send(&mut to_send).await?;
-                }
+                //data.try_send().await?;
                 let in_fut = data.in_notify.recv_notification();
                 let out_fut = data.out_notify.recv_notification();
                 let await_notify = drop_select(in_fut, out_fut);
-                match &to_send {
-                    Some(_) => match async_std::future::timeout(SEND_TIMEOUT, await_notify).await {
-                        Err(_) => data.drop_oldest(),
-                        Ok(Either::Left(in_not)) => data.handle_recv(in_not).await?,
-                        Ok(Either::Right(out_not)) => data.handle_send_res(out_not).await?,
-                    },
-                    None => match drop_select(data.recv.recv(), await_notify).await {
-                        Either::Left(val) => {
-                            let val = val.unwrap();
-                            if val.len() == 0 {
-                                break;
-                            }
-                            to_send = Some(val);
-                        }
+                if data.can_send() {
+                    match drop_select(data.recv.recv(), await_notify).await {
+                        Either::Left(val) => match val {
+                            Ok(v) if v.len() > 0 => data.send(v).await?,
+                            _ => break,
+                        },
                         Either::Right(Either::Left(in_not)) => data.handle_recv(in_not).await?,
                         Either::Right(Either::Right(out_not)) => {
                             data.handle_send_res(out_not).await?
                         }
-                    },
+                    }
+                } else {
+                    let to = data.get_to();
+                    match async_std::future::timeout(to, await_notify).await {
+                        Ok(Either::Left(in_not)) => data.handle_recv(in_not).await?,
+                        Ok(Either::Right(out_not)) => data.handle_send_res(out_not).await?,
+                        Err(_) => data.send(AttValue::new(4)).await?,
+                    }
                 }
             }
             unimplemented!()
@@ -283,12 +286,17 @@ impl MsgChannelClient {
             Err(_) => Err(Error::ClientThreadHungUp),
         }
     }
-    pub fn send_msg(&self, buf: &[u8]) -> impl Future<Output = Result<(), Error>> + Unpin + '_ {
+    pub async fn send_msg(&self, buf: &[u8]) -> Result<(), Error> {
         let mut val = AttValue::new(4);
         val.update(&buf[..buf.len().min(508)], 4);
         self.outbound
             .send(val)
             .map_err(|_| Error::ClientThreadHungUp)
+            .await
+        /*
+        self.outbound
+            .send(val)
+            */
     }
     pub fn get_avg_lat(&self) -> Duration {
         self.stats.get_avg_lat()

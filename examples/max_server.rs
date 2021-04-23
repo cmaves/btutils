@@ -10,7 +10,6 @@ use rustable::gatt;
 use rustable::Adapter;
 
 use btutils::messaging::{MsgChannelServ, ServerOptions};
-use btutils::UUID;
 
 #[async_std::main]
 async fn main() {

@@ -6,7 +6,7 @@ use async_std::stream::interval;
 use futures::prelude::*;
 
 use btutils::messaging::{ClientOptions, MsgChannelClient};
-use btutils::{drop_select, MAC};
+use btutils::MAC;
 
 use rand::prelude::*;
 

@@ -9,7 +9,7 @@ use futures::future::{try_join, Either};
 
 use async_rustbus::RpcConn;
 
-use gatt::client::{Characteristic, NotifySocket, WriteSocket};
+use gatt::client::{Characteristic, NotifySocket, Service, WriteSocket};
 use gatt::AttValue;
 use rustable::{gatt, Adapter, MAC};
 
@@ -255,14 +255,14 @@ impl TimeClient {
     pub async fn from_conn(conn: Arc<RpcConn>, options: ClientOptions<'_>) -> Result<Self, Error> {
         let hci = Adapter::from_conn(conn, options.hci).await?;
         let dev = hci.get_device(options.dev).await?;
-        let serv = dev
-            .get_service(TIME_SERV)
-            .await?
-            .ok_or(Error::InvalidService)?;
-        let chrc = serv
-            .get_characteristic(TIME_CHRC)
-            .await?
-            .ok_or(Error::InvalidService)?;
+        let serv = dev.get_service(TIME_SERV).await?;
+        Self::from_service(serv).await
+    }
+    pub async fn from_service(serv: Service) -> Result<Self, Error> {
+        if serv.uuid() != TIME_SERV {
+            return Err(Error::InvalidService);
+        }
+        let chrc = serv.get_characteristic(TIME_CHRC).await?;
         let (notify, write) = {
             let f = try_join(chrc.acquire_notify(), chrc.acquire_write()).await?;
             try_join(f.0, f.1).await?
@@ -314,6 +314,9 @@ impl TimeClient {
             start,
             sender,
         })
+    }
+    pub fn get_start(&self) -> Instant {
+        self.start
     }
     pub fn get_time(&self) -> u64 {
         self.start.elapsed().as_micros() as u64

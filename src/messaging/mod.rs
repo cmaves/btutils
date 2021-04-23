@@ -1,14 +1,15 @@
+use async_std::channel::{RecvError, SendError, TryRecvError};
+use async_std::sync::{Arc, Condvar, Mutex, MutexGuard};
+pub use rustable::{MAC, UUID};
 use std::collections::VecDeque;
 use std::fmt::Display;
-use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU16, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-pub use rustable::{MAC, UUID};
-
-const SERV_UUID: UUID = UUID(0x0143d59000004dfbb83fb1135254e6b4);
+pub const SERV_UUID: UUID = UUID(0x0143d59000004dfbb83fb1135254e6b4);
 const SERV_OUT: UUID = UUID(0x0143d59000014dfbb83fb1135254e6b4);
 const SERV_IN: UUID = UUID(0x0143d59000024dfbb83fb1135254e6b4);
-const SEND_TIMEOUT: Duration = Duration::from_millis(500);
+//const SEND_TIMEOUT: Duration = Duration::from_millis(500);
 const DEFAULT_LAT_PERIOD: usize = 32;
 
 mod client;
@@ -122,6 +123,15 @@ impl LatDeque {
             .unwrap_or_default()
             / 2
     }
+    /*
+    fn pop_oldest(&mut self) {
+        if self.last.is_empty() {
+            return;
+        }
+        debug_assert_eq!(self.last.len(), self.last_adjusted.len());
+        self.lat_sum -= self.last.pop_front().unwrap();
+        self.lat_sum_adjusted -= self.last_adjusted.pop_front().unwrap();
+    }*/
     fn push_new(&mut self, inst: Instant) {
         let now = Instant::now();
         let elapsed = now.duration_since(inst);
@@ -134,11 +144,172 @@ impl LatDeque {
         self.lat_sum_adjusted += adj_elapsed;
         while self.last.len() + 1 > self.lat_period {
             debug_assert_eq!(self.last.len(), self.last_adjusted.len());
-            self.lat_sum -= self.last.pop_front().unwrap();
-            self.lat_sum_adjusted -= self.last_adjusted.pop_front().unwrap();
         }
         self.last.push_back(elapsed);
         self.last_adjusted.push_back(adj_elapsed);
         self.last_inst = now;
     }
 }
+
+fn zero_channel<T: Send>() -> (ZeroSender<T>, ZeroReceiver<T>) {
+    let inner = Arc::new(ChannelInner {
+        recv_cnt: AtomicUsize::new(1),
+        send_cnt: AtomicUsize::new(1),
+        data: Mutex::new(None),
+        send_cond: Condvar::new(),
+        recv_cond: Condvar::new(),
+        in_process: Condvar::new(),
+    });
+    (
+        ZeroSender {
+            inner: inner.clone(),
+        },
+        ZeroReceiver { inner },
+    )
+}
+struct ChannelInner<T> {
+    recv_cnt: AtomicUsize,
+    send_cnt: AtomicUsize,
+    data: Mutex<Option<T>>,
+    send_cond: Condvar,
+    recv_cond: Condvar,
+    in_process: Condvar,
+}
+impl<T> ChannelInner<T> {
+    fn spin(&self) -> MutexGuard<Option<T>> {
+        let mut spin = 0;
+        loop {
+            if let Some(guard) = self.data.try_lock() {
+                return guard;
+            }
+            for _ in 0..(1 << spin) {
+                std::hint::spin_loop();
+            }
+            spin = 6.min(spin + 1);
+        }
+    }
+    fn sender_exists(&self) -> bool {
+        self.send_cnt.load(Ordering::Acquire) != 0
+    }
+    fn recv_exists(&self) -> bool {
+        self.recv_cnt.load(Ordering::Acquire) != 0
+    }
+}
+struct ZeroReceiver<T> {
+    inner: Arc<ChannelInner<T>>,
+}
+impl<T: Send> ZeroReceiver<T> {
+    fn try_recv(&self) -> Result<T, TryRecvError> {
+        let mut guard = self.inner.spin();
+        if let Some(val) = guard.take() {
+            self.inner.in_process.notify_all();
+            return Ok(val);
+        }
+        if self.inner.sender_exists() {
+            Err(TryRecvError::Empty)
+        } else {
+            Err(TryRecvError::Closed)
+        }
+    }
+    async fn recv(&self) -> Result<T, RecvError> {
+        let mut guard = self.inner.spin();
+        while let None = &*guard {
+            let waiter = self.inner.recv_cond.wait(guard);
+            if !self.inner.sender_exists() {
+                return Err(RecvError);
+            }
+            guard = waiter.await;
+        }
+        let ret = guard.take().unwrap();
+        self.inner.in_process.notify_all();
+        Ok(ret)
+    }
+}
+impl<T> Clone for ZeroReceiver<T> {
+    fn clone(&self) -> Self {
+        self.inner.recv_cnt.fetch_add(1, Ordering::Relaxed);
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+impl<T> Drop for ZeroReceiver<T> {
+    fn drop(&mut self) {
+        if self.inner.recv_cnt.fetch_sub(1, Ordering::AcqRel) == 0 {
+            self.inner.send_cond.notify_all();
+            self.inner.in_process.notify_all();
+        }
+    }
+}
+struct ZeroSender<T> {
+    inner: Arc<ChannelInner<T>>,
+}
+impl<T> Clone for ZeroSender<T> {
+    fn clone(&self) -> Self {
+        self.inner.send_cnt.fetch_add(1, Ordering::Relaxed);
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+impl<T> Drop for ZeroSender<T> {
+    fn drop(&mut self) {
+        if self.inner.send_cnt.fetch_sub(1, Ordering::AcqRel) == 0 {
+            self.inner.recv_cond.notify_all();
+            self.inner.in_process.notify_all();
+        }
+    }
+}
+impl<T: Send> ZeroSender<T> {
+    async fn send(&self, val: T) -> Result<(), SendError<T>> {
+        let mut guard = self.inner.spin();
+        while let Some(_) = &*guard {
+            // waiting until the send option
+            let waiter = self.inner.send_cond.wait(guard);
+            if !self.inner.recv_exists() {
+                return Err(SendError(val));
+            }
+            guard = waiter.await;
+        }
+        *guard = Some(val);
+        /*let cod = CallOnDrop::new(|| {
+            // if the future gets dropped, cleanup
+            let mut guard = self.inner.spin();
+            guard.take();
+            self.inner.send_cond.notify_all();
+        });*/
+        // wake receiver (if it exists)
+        self.inner.in_process.notify_all();
+        while let Some(_) = &*guard {
+            // wait for receiver to signal it has taken something
+            let waiter = self.inner.in_process.wait(guard);
+            if !self.inner.recv_exists() {
+                let mut guard = self.inner.spin();
+                return Err(SendError(guard.take().unwrap()));
+            }
+            guard = waiter.await;
+        }
+        //cod.forget();
+        self.inner.send_cond.notify_one();
+        Ok(())
+    }
+}
+/*struct CallOnDrop<F: FnMut()>(Option<F>);
+
+impl<F: FnMut()> CallOnDrop<F> {
+    fn new(f: F) -> Self {
+        Self(Some(f))
+    }
+    fn forget(mut self) {
+        self.0.take();
+    }
+}
+impl<F: FnMut()> Drop for CallOnDrop<F> {
+    fn drop(&mut self) {
+        if let Some(mut f) = self.0.take() {
+            (f)()
+        }
+    }
+}*/
+#[cfg(test)]
+mod tests {}
