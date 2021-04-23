@@ -57,6 +57,7 @@ fn ioe_to_blee(err: std::io::Error) -> Error {
 struct Stats {
     avg_lat: AtomicU16,
     recv_send: AtomicU64,
+    mtu: AtomicU16,
 }
 impl Stats {
     fn update_lat(&self, lat: Duration) {
@@ -79,6 +80,12 @@ impl Stats {
         let recvd = (val >> 32) as u32;
         let sent = val as u32;
         (recvd, sent)
+    }
+    fn get_mtu(&self) -> u16 {
+        self.mtu.load(Ordering::Relaxed)
+    }
+    fn set_mtu(&self, mtu: u16) {
+        self.mtu.store(mtu, Ordering::Relaxed)
     }
     /*fn update_lost(&self, lost: u32) {
         self.recv_send.fetch_add(lost as u64, Ordering::Relaxed);

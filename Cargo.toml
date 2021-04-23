@@ -9,7 +9,8 @@ edition = "2018"
 [dependencies]
 async-std = { version = "1.9.0", features = ["attributes"] }
 futures = "0.3"
-rustable = { path = "/home/cmaves/rustable" }
+# rustable = { path = "/home/cmaves/rustable" }
+rustable = { git = "https://github.com/cmaves/rustable.git", branch = "async" }
 async-rustbus = { git = "https://github.com/cmaves/async-rustbus.git" }
 
 [dev-dependencies]

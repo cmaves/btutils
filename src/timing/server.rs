@@ -8,7 +8,7 @@ use rustable::gatt;
 use gatt::server::{Application, Characteristic, Service};
 use gatt::{AttValue, CharFlags, ValOrFn};
 
-use super::{Error, TIME_CHRC, TIME_SERV};
+use super::{TIME_CHRC, TIME_SERV};
 
 enum State {
     Waiting,
@@ -181,7 +181,7 @@ pub struct ServerOptions<'a> {
     pub filter: bool,
 }*/
 impl TimeService {
-    pub async fn new(app: &mut Application) -> Result<Self, Error> {
+    pub fn new(app: &mut Application) -> Self {
         let mut service = Service::new(TIME_SERV, true);
         let mut flags = CharFlags::default();
         flags.write_wo_response = true;
@@ -209,7 +209,7 @@ impl TimeService {
         })));
         service.add_char(chrc);
         app.add_service(service);
-        Ok(TimeService { ref_clock })
+        TimeService { ref_clock }
     }
     pub fn get_time(&self) -> u64 {
         self.ref_clock.get_time()

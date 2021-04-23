@@ -86,6 +86,7 @@ impl ClientData {
                 let res = try_join(write_fut, sock_fut).await?;
                 self.set_timeout(now);
                 self.out_write = res.1;
+                self.stats.set_mtu(self.out_write.mtu());
                 Ok(())
             }
             Err(e) => Err(rustable::Error::from(e).into()),
@@ -222,6 +223,7 @@ impl MsgChannelClient {
         let (outbound, recv) = rendezvous();
         let (sender, inbound) = unbounded();
         let stats: Arc<Stats> = Arc::default();
+        stats.set_mtu(out_write.mtu());
         let mut data = ClientData {
             in_chrc,
             in_notify,
@@ -306,6 +308,9 @@ impl MsgChannelClient {
     }
     pub fn get_sent(&self) -> u32 {
         self.stats.get_sent()
+    }
+    pub fn get_out_mtu(&self) -> u16 {
+        self.stats.get_mtu() - 4
     }
     pub fn reset_recvd_sent(&self) {
         self.stats.reset();
