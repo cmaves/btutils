@@ -3,10 +3,10 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use async_std::channel::{unbounded, bounded, Receiver, Sender, TryRecvError};
+use async_std::channel::{bounded, unbounded, Receiver, Sender, TryRecvError};
 use async_std::sync::Mutex;
-use futures::prelude::*;
 use futures::future::try_join;
+use futures::prelude::*;
 
 use gatt::server::{Application, Characteristic, Service, ShouldNotify};
 use gatt::{AttValue, CharFlags, ValOrFn};

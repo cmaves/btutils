@@ -31,8 +31,7 @@ async fn main() {
         *u = i as u8;
     }*/
     while let Some(_) = interval.next().await {
-        let msg: [u8; 8] = rng.gen();
-
+        let msg: [u8; 4] = rng.gen();
         client.send_msg(&msg).await.unwrap();
         send_cnt += 1;
         while let Some(_) = client.try_recv_msg().unwrap() {

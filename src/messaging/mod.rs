@@ -124,7 +124,6 @@ impl LatDeque {
             .unwrap_or_default()
             / 2
     }
-    /*
     fn pop_oldest(&mut self) {
         if self.last.is_empty() {
             return;
@@ -132,7 +131,7 @@ impl LatDeque {
         debug_assert_eq!(self.last.len(), self.last_adjusted.len());
         self.lat_sum -= self.last.pop_front().unwrap();
         self.lat_sum_adjusted -= self.last_adjusted.pop_front().unwrap();
-    }*/
+    }
     fn push_new(&mut self, inst: Instant) {
         let now = Instant::now();
         let elapsed = now.duration_since(inst);
@@ -144,7 +143,7 @@ impl LatDeque {
         };
         self.lat_sum_adjusted += adj_elapsed;
         while self.last.len() + 1 > self.lat_period {
-            debug_assert_eq!(self.last.len(), self.last_adjusted.len());
+            self.pop_oldest();
         }
         self.last.push_back(elapsed);
         self.last_adjusted.push_back(adj_elapsed);
