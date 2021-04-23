@@ -141,7 +141,6 @@ pub enum TrySendError<T> {
 }
 impl<T: Send> RendSender<T> {
     pub async fn send(&self, val: T) -> Result<(), SendError<T>> {
-        eprintln!("hello");
         let mut guard = self.inner.spin();
         while guard.0.is_some() {
             // waiting until the send option
@@ -150,7 +149,6 @@ impl<T: Send> RendSender<T> {
             }
             guard = self.inner.send_cond.wait(guard).await;
         }
-        eprintln!("writing");
         guard.0 = Some(val);
         let key = guard.1.wrapping_add(1);
         guard.1 = key;
@@ -162,9 +160,7 @@ impl<T: Send> RendSender<T> {
                 break;
             }
             // wait for receiver to signal it has taken something
-            eprintln!("recv");
             if !self.inner.recv_exists() {
-                eprintln!("dropping");
                 return Err(SendError(guard.0.take().unwrap()));
             }
             guard = self.inner.in_process.wait(guard).await;
@@ -172,7 +168,6 @@ impl<T: Send> RendSender<T> {
         Ok(())
     }
     pub async fn send_deadline(&self, val: T, deadline: Instant) -> Result<(), TrySendError<T>> {
-        eprintln!("hello");
         let mut guard = self.inner.spin();
         while guard.0.is_some() {
             // waiting until the send option
@@ -186,7 +181,6 @@ impl<T: Send> RendSender<T> {
                 Err(_) => return Err(TrySendError::Timeout(val)),
             };
         }
-        eprintln!("writing");
         guard.0 = Some(val);
         let key = guard.1.wrapping_add(1);
         guard.1 = key;
@@ -198,9 +192,7 @@ impl<T: Send> RendSender<T> {
                 break;
             }
             // wait for receiver to signal it has taken something
-            eprintln!("recv");
             if !self.inner.recv_exists() {
-                eprintln!("dropping");
                 return Err(TrySendError::Closed(guard.0.take().unwrap()));
             }
             let waiter = self.inner.send_cond.wait(guard);

@@ -138,11 +138,11 @@ impl ClientData {
         let mut val = match res {
             Err(_) => {
                 self.out_notify = self.out_chrc.acquire_notify().await?.await?;
-                AttValue::new(0)
+                return Ok(());
             }
             Ok(v) => v,
         };
-        if val.len() < 4 {
+        if val.len() < 4 || val == AttValue::new(4) {
             return Ok(());
         }
         self.sender.send(val.clone()).await.unwrap();
