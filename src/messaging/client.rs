@@ -64,7 +64,7 @@ struct ClientData {
 
 impl ClientData {
     async fn send(&mut self, mut val: AttValue) -> Result<(), Error> {
-        debug_assert!(&val[..] == &AttValue::new(4)[..] || self.can_send());
+        debug_assert!(val == AttValue::new(4) || self.can_send());
         let now = Instant::now();
         let idx = self.allocate_idx();
         for (src, dest) in idx.get().to_le_bytes().iter().zip(&mut val[..4]) {

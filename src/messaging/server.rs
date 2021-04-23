@@ -117,11 +117,12 @@ impl MsgChannelServ {
 
         let mut primary = Service::new(SERV_UUID, true);
 
-        let mut flags = CharFlags::default();
-        flags.write_wo_response = true;
-        flags.write = true;
-        flags.notify = true;
-        // flags.indicate = true;
+        let flags = CharFlags {
+            write_wo_response: true,
+            write: true,
+            notify: true,
+            ..Default::default()
+        };
 
         let mut serv_out = Characteristic::new(SERV_OUT, flags);
         let (outbound, recv) = rendezvous();

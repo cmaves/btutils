@@ -176,7 +176,10 @@ impl ClientData {
         let last = insts.last().unwrap();
 
         // Check for timeout
-        if let None = (*last + est_ci.mul_f32(2.25)).checked_duration_since(now) {
+        if (*last + est_ci.mul_f32(2.25))
+            .checked_duration_since(now)
+            .is_none()
+        {
             return self.begin_ci_loop(Duration::from_secs(4)).await;
         }
 

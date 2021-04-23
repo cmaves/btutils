@@ -118,8 +118,6 @@ impl ServerData {
                         insts.clear();
                         insts.push(Instant::now());
                     }
-                } else {
-                    return;
                 }
             }
             (State::Agreeing(est_ci), 0x03) => {
@@ -183,9 +181,11 @@ pub struct ServerOptions<'a> {
 impl TimeService {
     pub fn new(app: &mut Application) -> Self {
         let mut service = Service::new(TIME_SERV, true);
-        let mut flags = CharFlags::default();
-        flags.write_wo_response = true;
-        flags.notify = true;
+        let flags = CharFlags {
+            write_wo_response: true,
+            notify: true,
+            ..Default::default()
+        };
 
         let mut chrc = Characteristic::new(TIME_CHRC, flags);
         let ref_clock = RefClock::new();
